@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vidsearch"
+version = "0.1.0"
+description = "A modular multimodal video search engine"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Vidsearch contributors" }]
+dependencies = [
+    "fastapi>=0.110,<1",
+    "numpy>=1.26,<3",
+    "pydantic>=2.6,<3",
+    "qdrant-client>=1.9,<2",
+    "rank-bm25>=0.2.2,<1",
+    "SQLAlchemy>=2.0,<3",
+    "uvicorn[standard]>=0.27,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.27,<1",
+    "mypy>=1.9,<2",
+    "pre-commit>=3.6,<5",
+    "pytest>=8,<9",
+    "pytest-cov>=4.1,<7",
+    "ruff>=0.3,<1",
+]
+api = ["python-multipart>=0.0.9,<1"]
+media = [
+    "av>=12,<15",
+    "opencv-python-headless>=4.9,<5",
+    "scenedetect[opencv]>=0.6,<1",
+    "yt-dlp>=2024.3",
+]
+models = [
+    "faster-whisper>=1,<2",
+    "sentence-transformers>=2.6,<6",
+    "transformers>=4.38,<5",
+]
+eval = ["PyYAML>=6,<7"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: requires application services or external infrastructure",
+    "security: exercises security boundaries",
+    "slow: longer-running tests",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "eval"]
+extend-exclude = [".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+packages = ["vidsearch"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+ignore_missing_imports = true

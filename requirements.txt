@@ -1,0 +1,8 @@
+# Runtime dependencies; keep in sync with [project.dependencies] in pyproject.toml.
+fastapi>=0.110,<1
+numpy>=1.26,<3
+pydantic>=2.6,<3
+qdrant-client>=1.9,<2
+rank-bm25>=0.2.2,<1
+SQLAlchemy>=2.0,<3
+uvicorn[standard]>=0.27,<1

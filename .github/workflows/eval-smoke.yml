@@ -1,0 +1,67 @@
+name: Evaluation smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-metrics:
+    name: Validate evaluation metrics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install project and evaluation dependencies
+        run: python -m pip install -e ".[eval]"
+
+      - name: Generate known-good synthetic prediction
+        run: |
+          printf '%s\n' '{"query_id":"demo-door","results":[{"video_id":"synthetic-demo-1","start":2.0,"end":5.5,"score":1.0}]}' > "$RUNNER_TEMP/predictions.jsonl"
+
+      - name: Run evaluation
+        run: |
+          python -m eval.run_eval \
+            --ground-truth eval/datasets/custom/queries.jsonl \
+            --predictions "$RUNNER_TEMP/predictions.jsonl" \
+            --output-dir "$RUNNER_TEMP/evaluation-results" \
+            --run-name smoke
+
+      - name: Assert expected metric values
+        run: |
+          python - <<'PY'
+          import csv
+          import os
+          from pathlib import Path
+
+          metrics_path = Path(os.environ["RUNNER_TEMP"]) / "evaluation-results" / "smoke_metrics.csv"
+          with metrics_path.open(newline="", encoding="utf-8") as handle:
+              metrics = {row["metric"]: float(row["value"]) for row in csv.DictReader(handle)}
+
+          expected = {
+              "Recall@1": 1.0,
+              "MRR": 1.0,
+              "MeanIoU": 1.0,
+              "R@1@IoU0.3": 1.0,
+              "R@1@IoU0.5": 1.0,
+          }
+          for name, value in expected.items():
+              actual = metrics.get(name)
+              if actual != value:
+                  raise SystemExit(f"{name}: expected {value}, got {actual}")
+              print(f"{name} = {actual:.1f}")
+          PY
