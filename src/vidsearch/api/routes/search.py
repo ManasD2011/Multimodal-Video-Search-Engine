@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from vidsearch.core.schemas import Query
@@ -21,14 +21,6 @@ class SearchRequest(BaseModel):
 @router.post("")
 def search_videos(body: SearchRequest, request: Request) -> dict[str, object]:
     engine = request.app.state.search_engine
-    if engine is None:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Search is unavailable because no retrieval index is configured. "
-                "Video upload and library management are available."
-            ),
-        )
     result = engine.search(
         Query(
             text=body.query,

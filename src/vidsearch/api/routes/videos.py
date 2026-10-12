@@ -34,3 +34,5 @@ def get_video_media(video_id: str, request: Request) -> FileResponse:
 def delete_video(video_id: str, request: Request) -> None:
     if not request.app.state.video_library.delete_video(video_id):
         raise HTTPException(status_code=404, detail="video not found")
+    request.app.state.search_index.delete_video(video_id)
+    request.app.state.visual_index.delete_video(video_id)

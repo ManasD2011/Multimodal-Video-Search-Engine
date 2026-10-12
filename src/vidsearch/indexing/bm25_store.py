@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from threading import RLock
 
 from vidsearch.core.schemas import Evidence, Query, SearchHit
 
@@ -20,6 +21,7 @@ class BM25Store:
         self.k1 = k1
         self.b = b
         self._documents: dict[str, tuple[Evidence, Counter[str]]] = {}
+        self._lock = RLock()
 
     def add(self, evidence: Evidence) -> None:
         if not evidence.text:
@@ -28,50 +30,53 @@ class BM25Store:
             f"{evidence.segment.video_id}:{evidence.segment.start_seconds}"
         )
         tokens = Counter(TOKEN_PATTERN.findall(evidence.text.casefold()))
-        self._documents[key] = (evidence, tokens)
+        with self._lock:
+            self._documents[key] = (evidence, tokens)
 
     def search(self, query: Query) -> list[SearchHit]:
         query_terms = TOKEN_PATTERN.findall(query.text.casefold())
-        if not query_terms or not self._documents:
-            return []
-        document_count = len(self._documents)
-        average_length: float = sum(
-            sum(tokens.values()) for _, tokens in self._documents.values()
-        )
-        average_length = average_length / document_count if document_count else 0.0
-        hits: list[SearchHit] = []
-        for evidence, frequencies in self._documents.values():
-            length = sum(frequencies.values())
-            score = 0.0
-            for term in query_terms:
-                term_frequency = frequencies[term]
-                if not term_frequency:
-                    continue
-                document_frequency = sum(
-                    term in doc for _, doc in self._documents.values()
-                )
-                inverse_frequency = math.log(
-                    1
-                    + (document_count - document_frequency + 0.5)
-                    / (document_frequency + 0.5)
-                )
-                denominator = term_frequency + self.k1 * (
-                    1 - self.b + self.b * length / max(average_length, 1e-12)
-                )
-                score += (
-                    inverse_frequency * term_frequency * (self.k1 + 1) / denominator
-                )
-            if score > 0:
-                hits.append(
-                    SearchHit(
-                        segment=evidence.segment, score=score, evidence=(evidence,)
+        with self._lock:
+            if not query_terms or not self._documents:
+                return []
+            document_count = len(self._documents)
+            average_length: float = sum(
+                sum(tokens.values()) for _, tokens in self._documents.values()
+            )
+            average_length = average_length / document_count
+            hits: list[SearchHit] = []
+            for evidence, frequencies in self._documents.values():
+                length = sum(frequencies.values())
+                score = 0.0
+                for term in query_terms:
+                    term_frequency = frequencies[term]
+                    if not term_frequency:
+                        continue
+                    document_frequency = sum(
+                        term in doc for _, doc in self._documents.values()
                     )
-                )
-        return sorted(hits, key=lambda hit: hit.score, reverse=True)[: query.top_k]
+                    inverse_frequency = math.log(
+                        1
+                        + (document_count - document_frequency + 0.5)
+                        / (document_frequency + 0.5)
+                    )
+                    denominator = term_frequency + self.k1 * (
+                        1 - self.b + self.b * length / max(average_length, 1e-12)
+                    )
+                    score += (
+                        inverse_frequency * term_frequency * (self.k1 + 1) / denominator
+                    )
+                if score > 0:
+                    hits.append(
+                        SearchHit(
+                            segment=evidence.segment, score=score, evidence=(evidence,)
+                        )
+                    )
+            return sorted(hits, key=lambda hit: hit.score, reverse=True)[: query.top_k]
 
     def delete_video(self, video_id: str) -> None:
-        self._documents = {
-            key: item
-            for key, item in self._documents.items()
-            if item[0].segment.video_id != video_id
-        }
+        with self._lock:
+            self._documents = {
+                key: item
+                for key, item in self._documents.items()
+                if item[0].segment.video_id != video_id
+            }

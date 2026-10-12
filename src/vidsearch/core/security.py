@@ -7,6 +7,8 @@ import socket
 from pathlib import Path
 from urllib.parse import urlsplit
 
+ALLOWED_VIDEO_SUFFIXES = frozenset({".mp4", ".mkv", ".mov", ".webm", ".avi"})
+
 
 def validate_local_path(path: str | Path, allowed_root: str | Path) -> Path:
     """Resolve a local path and ensure it remains beneath the configured root."""

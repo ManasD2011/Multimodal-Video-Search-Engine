@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import mimetypes
 import sqlite3
 import uuid
@@ -11,8 +12,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from threading import Lock
+from typing import Literal
 
-ALLOWED_VIDEO_SUFFIXES = frozenset({".mp4", ".mkv", ".mov", ".webm", ".avi"})
+from vidsearch.core.security import ALLOWED_VIDEO_SUFFIXES
+
+VideoStatus = Literal["uploaded", "indexing", "ready", "failed"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,13 +30,16 @@ class UploadTarget:
 class VideoLibrary:
     """Persist uploaded files and library metadata in the configured data root."""
 
-    def __init__(self, data_dir: Path, max_video_bytes: int) -> None:
-        if max_video_bytes < 1:
-            raise ValueError("max_video_bytes must be positive")
+    def __init__(
+        self, data_dir: Path, max_video_bytes: int, max_video_duration_seconds: int
+    ) -> None:
+        if max_video_bytes < 1 or max_video_duration_seconds < 1:
+            raise ValueError("video limits must be positive")
         self.data_dir = data_dir.expanduser().resolve()
         self.media_dir = self.data_dir / "videos"
         self.database_path = self.data_dir / "vidsearch.sqlite3"
         self.max_video_bytes = max_video_bytes
+        self.max_video_duration_seconds = max_video_duration_seconds
         self._lock = Lock()
         self.media_dir.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
@@ -43,7 +50,47 @@ class VideoLibrary:
                     filename TEXT NOT NULL,
                     media_filename TEXT NOT NULL,
                     size_bytes INTEGER NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'uploaded',
+                    duration_seconds REAL,
+                    segment_count INTEGER NOT NULL DEFAULT 0,
+                    processing_error TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS visual_segments (
+                    segment_id TEXT PRIMARY KEY,
+                    video_id TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
+                    start_seconds REAL NOT NULL,
+                    end_seconds REAL NOT NULL,
+                    embedding TEXT NOT NULL
+                )
+                """
+            )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(videos)")
+            }
+            for name, definition in (
+                ("status", "TEXT NOT NULL DEFAULT 'uploaded'"),
+                ("duration_seconds", "REAL"),
+                ("segment_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("processing_error", "TEXT"),
+            ):
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE videos ADD COLUMN {name} {definition}"
+                    )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS transcript_segments (
+                    segment_id TEXT PRIMARY KEY,
+                    video_id TEXT NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
+                    start_seconds REAL NOT NULL,
+                    end_seconds REAL NOT NULL,
+                    text TEXT NOT NULL
                 )
                 """
             )
@@ -113,7 +160,8 @@ class VideoLibrary:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT video_id, filename, media_filename, size_bytes, created_at
+                SELECT video_id, filename, media_filename, size_bytes, created_at,
+                       status, duration_seconds, segment_count, processing_error
                 FROM videos
                 ORDER BY created_at DESC, video_id DESC
                 """
@@ -124,7 +172,8 @@ class VideoLibrary:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT video_id, filename, media_filename, size_bytes, created_at
+                SELECT video_id, filename, media_filename, size_bytes, created_at,
+                       status, duration_seconds, segment_count, processing_error
                 FROM videos WHERE video_id = ?
                 """,
                 (video_id,),
@@ -145,6 +194,141 @@ class VideoLibrary:
         media_type = mimetypes.guess_type(str(row["filename"]))[0]
         return path, media_type or "application/octet-stream"
 
+    def update_status(
+        self, video_id: str, status: VideoStatus, processing_error: str | None = None
+    ) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE videos
+                SET status = ?, processing_error = ?
+                WHERE video_id = ?
+                """,
+                (status, processing_error, video_id),
+            )
+        return cursor.rowcount > 0
+
+    def save_transcript(
+        self,
+        video_id: str,
+        chunks: list[tuple[float, float, str]],
+        duration_seconds: float,
+    ) -> None:
+        with self._connect() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM videos WHERE video_id = ?", (video_id,)
+            ).fetchone()
+            if exists is None:
+                raise LookupError(f"video {video_id} no longer exists")
+            connection.execute(
+                "DELETE FROM transcript_segments WHERE video_id = ?", (video_id,)
+            )
+            connection.execute(
+                "DELETE FROM visual_segments WHERE video_id = ?", (video_id,)
+            )
+            connection.executemany(
+                """
+                INSERT INTO transcript_segments
+                    (segment_id, video_id, start_seconds, end_seconds, text)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (f"{video_id}:{index}", video_id, start, end, text)
+                    for index, (start, end, text) in enumerate(chunks)
+                ],
+            )
+            connection.execute(
+                """
+                UPDATE videos
+                SET status = 'indexing', duration_seconds = ?, segment_count = ?,
+                    processing_error = NULL
+                WHERE video_id = ?
+                """,
+                (duration_seconds, len(chunks), video_id),
+            )
+
+    def transcript_segments(
+        self, video_id: str | None = None
+    ) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                (
+                    """
+                    SELECT segment_id, video_id, start_seconds, end_seconds, text
+                    FROM transcript_segments
+                    WHERE video_id = ?
+                    ORDER BY start_seconds, segment_id
+                    """
+                    if video_id is not None
+                    else """
+                    SELECT segment_id, video_id, start_seconds, end_seconds, text
+                    FROM transcript_segments
+                    ORDER BY video_id, start_seconds, segment_id
+                    """
+                ),
+                (video_id,) if video_id is not None else (),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_visual_segments(
+        self,
+        video_id: str,
+        frames: list[tuple[float, float, tuple[float, ...]]],
+    ) -> None:
+        with self._connect() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM videos WHERE video_id = ?", (video_id,)
+            ).fetchone()
+            if exists is None:
+                raise LookupError(f"video {video_id} no longer exists")
+            connection.execute(
+                "DELETE FROM visual_segments WHERE video_id = ?", (video_id,)
+            )
+            connection.executemany(
+                """
+                INSERT INTO visual_segments
+                    (segment_id, video_id, start_seconds, end_seconds, embedding)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        f"{video_id}:visual:{index}",
+                        video_id,
+                        start,
+                        end,
+                        json.dumps(embedding),
+                    )
+                    for index, (start, end, embedding) in enumerate(frames)
+                ],
+            )
+            connection.execute(
+                """
+                UPDATE videos
+                SET segment_count = (
+                    SELECT COUNT(*) FROM transcript_segments WHERE video_id = ?
+                ) + ?, processing_error = NULL
+                WHERE video_id = ?
+                """,
+                (video_id, len(frames), video_id),
+            )
+
+    def visual_segments(self) -> list[dict[str, object]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT segment_id, video_id, start_seconds, end_seconds, embedding
+                FROM visual_segments
+                ORDER BY video_id, start_seconds, segment_id
+                """
+            ).fetchall()
+        return [
+            {
+                **dict(row),
+                "embedding": json.loads(str(row["embedding"])),
+            }
+            for row in rows
+        ]
+
     def delete_video(self, video_id: str) -> bool:
         with self._lock:
             with self._connect() as connection:
@@ -154,6 +338,10 @@ class VideoLibrary:
                 ).fetchone()
                 if row is None:
                     return False
+                connection.execute(
+                    "DELETE FROM transcript_segments WHERE video_id = ?",
+                    (video_id,),
+                )
                 connection.execute("DELETE FROM videos WHERE video_id = ?", (video_id,))
             path = (self.media_dir / row["media_filename"]).resolve()
             if path.is_relative_to(self.media_dir):
@@ -164,6 +352,7 @@ class VideoLibrary:
     def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.database_path, timeout=10)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         with closing(connection):
             with connection:
                 yield connection
@@ -175,9 +364,10 @@ class VideoLibrary:
         return {
             "video_id": row["video_id"],
             "filename": filename,
-            "duration_seconds": None,
-            "segment_count": 0,
-            "status": "uploaded",
+            "duration_seconds": row.get("duration_seconds"),
+            "segment_count": row.get("segment_count", 0),
+            "status": row.get("status", "uploaded"),
+            "processing_error": row.get("processing_error"),
             "added_at": row["created_at"],
             "size_bytes": row["size_bytes"],
             "media_type": media_type,
