@@ -41,6 +41,15 @@ models = [
     "sentence-transformers>=2.6,<6",
     "transformers>=4.38,<5",
 ]
+search = [
+    "faster-whisper>=1,<2",
+    "yt-dlp>=2024.3",
+]
+visual = [
+    "opencv-python-headless>=4.9,<5",
+    "Pillow>=10,<13",
+    "sentence-transformers>=2.6,<6",
+]
 eval = ["PyYAML>=6,<7"]
 
 [tool.setuptools.packages.find]
