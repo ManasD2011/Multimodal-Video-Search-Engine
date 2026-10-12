@@ -47,16 +47,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Scan repository with Trivy
-        uses: aquasecurity/trivy-action@v0.33.1
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
         with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,misconfig
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
-          format: table
+          version: v0.68.2
+          cache: true
+
+      - name: Scan repository with Trivy
+        run: trivy fs --scanners vuln,misconfig --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 --format table .
 
   secret-scan:
     name: Gitleaks secret scan

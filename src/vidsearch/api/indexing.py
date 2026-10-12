@@ -69,7 +69,12 @@ def index_video(
             record = library.get_video(video_id)
             if record is None:
                 raise LookupError(f"video {video_id} no longer exists")
-            duration_seconds = float(record["duration_seconds"] or 0)
+            stored_duration = record["duration_seconds"]
+            duration_seconds = (
+                float(stored_duration)
+                if isinstance(stored_duration, (int, float))
+                else 0.0
+            )
             evidence_items = [
                 Evidence(
                     segment=Segment(

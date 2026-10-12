@@ -12,11 +12,27 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 from threading import Lock
-from typing import Literal
+from typing import Literal, TypedDict
 
 from vidsearch.core.security import ALLOWED_VIDEO_SUFFIXES
 
 VideoStatus = Literal["uploaded", "indexing", "ready", "failed"]
+
+
+class TranscriptSegment(TypedDict):
+    segment_id: str
+    video_id: str
+    start_seconds: float
+    end_seconds: float
+    text: str
+
+
+class VisualSegment(TypedDict):
+    segment_id: str
+    video_id: str
+    start_seconds: float
+    end_seconds: float
+    embedding: list[float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,7 +265,7 @@ class VideoLibrary:
 
     def transcript_segments(
         self, video_id: str | None = None
-    ) -> list[dict[str, object]]:
+    ) -> list[TranscriptSegment]:
         with self._connect() as connection:
             rows = connection.execute(
                 (
@@ -268,7 +284,16 @@ class VideoLibrary:
                 ),
                 (video_id,) if video_id is not None else (),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [
+            {
+                "segment_id": str(row["segment_id"]),
+                "video_id": str(row["video_id"]),
+                "start_seconds": float(row["start_seconds"]),
+                "end_seconds": float(row["end_seconds"]),
+                "text": str(row["text"]),
+            }
+            for row in rows
+        ]
 
     def save_visual_segments(
         self,
@@ -312,7 +337,7 @@ class VideoLibrary:
                 (video_id, len(frames), video_id),
             )
 
-    def visual_segments(self) -> list[dict[str, object]]:
+    def visual_segments(self) -> list[VisualSegment]:
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -321,13 +346,23 @@ class VideoLibrary:
                 ORDER BY video_id, start_seconds, segment_id
                 """
             ).fetchall()
-        return [
-            {
-                **dict(row),
-                "embedding": json.loads(str(row["embedding"])),
-            }
-            for row in rows
-        ]
+        segments: list[VisualSegment] = []
+        for row in rows:
+            embedding = json.loads(str(row["embedding"]))
+            if not isinstance(embedding, list) or not all(
+                isinstance(value, (int, float)) for value in embedding
+            ):
+                raise ValueError("stored visual embedding must be a numeric list")
+            segments.append(
+                {
+                    "segment_id": str(row["segment_id"]),
+                    "video_id": str(row["video_id"]),
+                    "start_seconds": float(row["start_seconds"]),
+                    "end_seconds": float(row["end_seconds"]),
+                    "embedding": [float(value) for value in embedding],
+                }
+            )
+        return segments
 
     def delete_video(self, video_id: str) -> bool:
         with self._lock:
