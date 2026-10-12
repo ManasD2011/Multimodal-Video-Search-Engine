@@ -27,8 +27,8 @@ export default function App() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [themeAnnouncement, setThemeAnnouncement] = useState("");
 
-  const refreshVideos = useCallback(async () => {
-    setLoadingLibrary(true);
+  const refreshVideos = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoadingLibrary(true);
     setLibraryError(null);
     try {
       setVideos(await api.listVideos());
@@ -39,7 +39,7 @@ export default function App() {
           : "The video library could not be loaded. Retry after checking the API.",
       );
     } finally {
-      setLoadingLibrary(false);
+      if (showLoading) setLoadingLibrary(false);
     }
   }, []);
 
@@ -47,6 +47,14 @@ export default function App() {
     void refreshVideos();
     void api.health().then(setHealth).catch(() => setHealth(null));
   }, [refreshVideos]);
+
+  useEffect(() => {
+    if (!videos.some((video) => video.status === "indexing")) return;
+    const interval = window.setInterval(() => {
+      void refreshVideos(false);
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [refreshVideos, videos]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -182,6 +190,7 @@ export default function App() {
         onOpenChange={setUploadOpen}
         onUploaded={addVideo}
         open={uploadOpen}
+        videos={videos}
       />
       <CommandPalette
         onNavigate={navigateFromPalette}

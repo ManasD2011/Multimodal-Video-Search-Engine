@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, FolderUp, Upload, X } from "lucide-react";
+import { Check, FolderUp, Upload, X, XCircle } from "lucide-react";
 import { useRef, useState, type DragEvent, type FormEvent, type ReactNode } from "react";
 import { api, type VideoRecord } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { formatBytes } from "@/lib/utils";
 
 interface UploadPanelProps {
   onUploaded: (video: VideoRecord) => void;
+  videos: VideoRecord[];
   trigger?: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -15,11 +16,13 @@ interface UploadPanelProps {
 interface UploadRow {
   name: string;
   size: number;
-  status: "Uploading" | "Stored · not indexed" | "Upload failed";
+  videoId?: string;
+  status: "Uploading" | "Indexing speech" | "Indexed" | "Indexing failed" | "Upload failed";
 }
 
 export function UploadPanel({
   onUploaded,
+  videos,
   trigger,
   open: controlledOpen,
   onOpenChange,
@@ -57,7 +60,17 @@ export function UploadPanel({
         const video = await api.uploadVideo(file);
         onUploaded(video);
         setRows((current) => current.map((row, rowIndex) =>
-          rowIndex === index ? { ...row, status: "Stored · not indexed" } : row,
+          rowIndex === index
+            ? {
+                ...row,
+                videoId: video.video_id,
+                status: video.status === "ready"
+                  ? "Indexed"
+                  : video.status === "failed"
+                    ? "Indexing failed"
+                    : "Indexing speech",
+              }
+            : row,
         ));
       } catch {
         setRows((current) => current.map((row, rowIndex) =>
@@ -78,10 +91,32 @@ export function UploadPanel({
     if (!busy) void uploadFiles(event.dataTransfer.files);
   }
 
-  function validateUrl(event: FormEvent<HTMLFormElement>) {
+  function displayStatus(row: UploadRow): UploadRow["status"] {
+    const video = videos.find((item) => item.video_id === row.videoId);
+    if (video?.status === "ready") return "Indexed";
+    if (video?.status === "failed") return "Indexing failed";
+    if (video?.status === "indexing") return "Indexing speech";
+    return row.status;
+  }
+
+  async function importUrl(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setUrlMessage("URL imports are not connected to this API yet. Upload a video file instead.");
-    setUrl("");
+    setUrlMessage(null);
+    setBusy(true);
+    try {
+      const video = await api.importVideoUrl(url.trim());
+      onUploaded(video);
+      setUrl("");
+      setUrlMessage(`Added ${video.filename}. Speech indexing has started.`);
+    } catch (cause) {
+      setUrlMessage(
+        cause instanceof Error
+          ? cause.message
+          : "The video URL could not be imported. Check the URL and try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -148,38 +183,49 @@ export function UploadPanel({
             </div>
           </div>
           <p className="upload-limit">
-            Only local files are uploaded. Indexing is not connected yet.
+            Speech and visual indexing run locally. Visual search samples frames from each video.
           </p>
 
           {rows.length > 0 && (
             <ul className="upload-rows" aria-live="polite">
-              {rows.map((row, index) => (
-                <li className="upload-row" key={`${row.name}-${index}`}>
+              {rows.map((row, index) => {
+                const status = displayStatus(row);
+                const video = videos.find((item) => item.video_id === row.videoId);
+                return (
+                  <li
+                    className="upload-row"
+                    key={`${row.name}-${index}`}
+                    title={video?.processing_error ?? undefined}
+                  >
                   <div className="upload-row-main">
                     <span className="upload-file-name">{row.name}</span>
-                    <span className="upload-row-meta">{formatBytes(row.size)} · {row.status}</span>
+                    <span className="upload-row-meta">{formatBytes(row.size)} · {status}</span>
                   </div>
-                  {row.status === "Stored · not indexed" && (
-                    <Check aria-label="Stored" className="upload-check" size={15} />
+                  {(status === "Indexed" || status === "Indexing failed") && (
+                    status === "Indexed"
+                      ? <Check aria-label="Indexed" className="upload-check" size={15} />
+                      : <XCircle aria-label="Indexing failed" className="form-error" size={15} />
                   )}
-                  {row.status === "Uploading" && <span aria-label="Uploading" className="upload-progress" />}
-                </li>
-              ))}
+                  {status === "Uploading" && <span aria-label="Uploading" className="upload-progress" />}
+                  </li>
+                );
+              })}
             </ul>
           )}
           {uploadMessage && <p className="form-error" role="alert">{uploadMessage}</p>}
 
-          <form className="url-import" onSubmit={validateUrl}>
-            <label htmlFor="video-url">Import from URL</label>
+          <form className="url-import" onSubmit={(event) => void importUrl(event)}>
+            <label htmlFor="video-url">Import a YouTube video</label>
             <div>
               <input
                 id="video-url"
+                disabled={busy}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder="Paste a YouTube URL"
                 value={url}
               />
-              <Button disabled={!url.trim()} size="sm" type="submit" variant="secondary">
-                Check URL
+              <Button disabled={busy || !url.trim()} size="sm" type="submit" variant="secondary">
+                Import URL
               </Button>
             </div>
             {urlMessage && <p role="status">{urlMessage}</p>}

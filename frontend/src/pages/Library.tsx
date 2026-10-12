@@ -113,9 +113,7 @@ export function LibraryPage({
           <p className="state-title">
             {filter === "indexed" ? "No indexed videos" : "Add your first video"}
           </p>
-          <p>
-            Local uploads can be previewed now. Search indexing is not connected yet.
-          </p>
+          <p>No videos match this filter.</p>
           {filter !== "indexed" && (
             <Button onClick={onOpenUpload} size="sm">Add videos</Button>
           )}
@@ -160,9 +158,18 @@ export function LibraryPage({
                   <td className="data-cell">{video.duration_seconds === null ? "—" : formatTime(video.duration_seconds)}</td>
                   <td className="data-cell">{video.segment_count || "—"}</td>
                   <td>
-                    <span className={`status-tag status-${video.status}`}>
+                    <span
+                      className={`status-tag status-${video.status}`}
+                      title={video.processing_error ?? undefined}
+                    >
                       <span aria-hidden="true" />
-                      {video.status === "ready" ? "Indexed" : "Not indexed"}
+                      {video.status === "ready"
+                        ? "Indexed"
+                        : video.status === "indexing"
+                          ? "Indexing speech"
+                          : video.status === "failed"
+                            ? "Index failed"
+                            : "Uploaded"}
                     </span>
                   </td>
                   <td className="date-cell">{new Date(video.added_at).toLocaleDateString()}</td>

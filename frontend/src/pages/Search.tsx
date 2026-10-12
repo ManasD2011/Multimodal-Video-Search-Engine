@@ -50,7 +50,7 @@ export function SearchPage({
       }
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 503) {
-        setError("Connect a retrieval index to search uploaded videos.");
+        setError("Video search is unavailable. Check the backend logs and installed search dependencies.");
       } else if (cause instanceof ApiError && cause.status === 0) {
         setError("Start the local API, then retry your search.");
       } else if (cause instanceof ApiError && cause.status === 422) {

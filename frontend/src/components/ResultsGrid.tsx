@@ -39,11 +39,11 @@ export function ResultsGrid({
       <div className="state-panel state-error" role="alert">
         <AlertCircle size={20} />
         <div>
-          <p className="state-title">Search index is not connected</p>
+          <p className="state-title">Video search is unavailable</p>
           <p>{error}</p>
           <p className="state-note">
-            The library and local playback work now; matches will appear once a
-            retrieval index is connected.
+            Check the video's indexing status in the library, then retry your
+            search when indexing has completed.
           </p>
         </div>
       </div>
@@ -54,7 +54,7 @@ export function ResultsGrid({
       <div className="state-panel compact-state">
         <Film size={18} />
         <p className="state-title">Search footage</p>
-        <p>Describe a moment to find a timestamp.</p>
+        <p>Describe what appears on screen or what is spoken.</p>
       </div>
     );
   }
@@ -63,9 +63,9 @@ export function ResultsGrid({
       <div className="state-panel compact-state">
         <SearchX size={18} />
         <p className="state-title">No matches for this query</p>
-        <p>Try a broader description or search for:</p>
+        <p>Try a visual description or a phrase from the video:</p>
         <div className="empty-suggestions">
-          {["person walking", "a spoken phrase"].map((suggestion) => (
+          {["Ganpati idol", "a spoken phrase"].map((suggestion) => (
             <button key={suggestion} onClick={() => onSearch(suggestion)} type="button">{suggestion}</button>
           ))}
         </div>
@@ -80,7 +80,10 @@ export function ResultsGrid({
     <div className="results-list" aria-label="Search results" role="listbox">
       {hits.map((hit, index) => {
         const video = records.get(hit.video_id);
-        const evidence = hit.evidence.map((item) => item.text).filter(Boolean).join(", ");
+        const evidence = hit.evidence
+          .map((item) => item.text ?? (item.stream === "visual" ? "Visual match" : ""))
+          .filter(Boolean)
+          .join(", ");
         return (
           <button
             aria-selected={selectedIndex === index}

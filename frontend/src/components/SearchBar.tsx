@@ -46,7 +46,7 @@ export function SearchBar({ busy, count, latencyMs, onSearch }: SearchBarProps) 
       <div className="search-scope">
         <SlidersHorizontal size={13} aria-hidden="true" />
         <button className="scope-chip active" type="button">All videos</button>
-        <span className="scope-note">Search visual, speech and audio evidence</span>
+        <span className="scope-note">Search what appears on screen and what is spoken</span>
       </div>
     </div>
   );

@@ -37,4 +37,29 @@ describe("API client", () => {
       message: "Search index is not configured.",
     } satisfies Partial<ApiError>);
   });
+
+  it("submits a YouTube URL to the import endpoint", async () => {
+    const video = {
+      video_id: "id-2",
+      filename: "clip.mp4",
+      duration_seconds: null,
+      segment_count: 0,
+      status: "indexing" as const,
+      added_at: "2025-01-01T00:00:00Z",
+      size_bytes: 123,
+      media_type: "video/mp4",
+      media_url: "/videos/id-2/media",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(video), { status: 201 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.importVideoUrl("https://youtu.be/example")).resolves.toEqual(video);
+    expect(fetchMock).toHaveBeenCalledWith("/ingest/url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://youtu.be/example" }),
+    });
+  });
 });

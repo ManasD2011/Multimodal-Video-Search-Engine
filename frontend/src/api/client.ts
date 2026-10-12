@@ -4,6 +4,7 @@ export interface VideoRecord {
   duration_seconds: number | null;
   segment_count: number;
   status: "uploaded" | "indexing" | "ready" | "failed";
+  processing_error?: string | null;
   added_at: string;
   size_bytes: number;
   media_type: string;
@@ -74,6 +75,12 @@ export const api = {
     body.append("file", file);
     return request<VideoRecord>("/ingest/upload", { method: "POST", body });
   },
+  importVideoUrl: (url: string) =>
+    request<VideoRecord>("/ingest/url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    }),
   deleteVideo: (videoId: string) =>
     request<void>(`/videos/${encodeURIComponent(videoId)}`, {
       method: "DELETE",
