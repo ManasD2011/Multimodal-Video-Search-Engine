@@ -15,13 +15,15 @@ Install optional media or inference dependencies only for work that needs
 them:
 
 ```powershell
+python -m pip install -e ".[search]"
+python -m pip install -e ".[visual]"
 python -m pip install -e ".[media]"
 python -m pip install -e ".[models]"
 ```
 
 FFmpeg is a system dependency, not installed by these Python extras. Confirm
-`ffprobe` is on `PATH` before exercising media probing. Model weights and
-benchmark datasets are not downloaded during setup.
+`ffprobe` is on `PATH` before exercising media probing. The first indexing
+run downloads Faster-Whisper `base` and CLIP `clip-ViT-B-32` into `data/models/`.
 
 ## Checks
 
@@ -32,10 +34,11 @@ python -m ruff format --check tests eval
 python -m mypy src
 ```
 
-The current test files describe cases to implement and are marked skipped.
-The formatter check covers `tests/` and `eval/`; existing source files have
-formatting differences. Mypy currently reports findings in existing source
-modules, so compare diagnostics when introducing changes.
+The API integration tests use deterministic test transcriber, frame sampler,
+and image encoder doubles and do not download model weights. The formatter check covers `tests/` and `eval/`;
+existing source files have formatting differences. Mypy currently reports
+findings in existing source modules, so compare diagnostics when introducing
+changes.
 
 The Makefile provides aliases for common tasks, but GNU Make is not included
 with Python and may not be available by default on Windows. The direct Python

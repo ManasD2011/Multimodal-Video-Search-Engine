@@ -7,12 +7,11 @@ intended system turns videos into timestamped segments, extracts evidence
 from multiple modalities, indexes that evidence, and returns ranked moments
 for a natural-language query.
 
-> **Project status: local development prototype.** Core data contracts, local
-> media checks, segmentation and retrieval utilities, offline evaluation, and
-> a usable React library/upload/player interface are present. The local API
-> supports upload, library listing, playback, and deletion. Search explicitly
-> reports that no retrieval index is connected; model inference, worker
-> processing, authentication, and production storage are not ready.
+> **Project status: local development prototype.** The local API stores videos,
+> transcribes speech on the CPU, and samples frames for local CLIP image-text
+> search. YouTube video URLs can also be imported. OCR, object detection,
+> audio-event search, distributed workers, authentication, and production
+> storage are not implemented.
 
 ## The idea
 
@@ -42,11 +41,11 @@ For module-level interactions and the full editable diagrams, see
 | Local media safety | Allowed-root path validation, URL validation helper, and byte-size checks |
 | Media inspection | `ffprobe` wrapper that enforces file-size and duration limits |
 | Segmentation | Pure-Python fixed time windows and adjacent-window merging |
-| Extractor architecture | Base contract and explicit plugin registry; modality implementations are placeholders |
-| Text retrieval | In-memory BM25 baseline over text evidence |
+| Extractor architecture | Base contract and explicit plugin registry; speech transcription uses Faster-Whisper, visual search uses CLIP |
+| Retrieval | BM25 over persisted transcripts plus local CLIP visual similarity |
 | Ranking | Reciprocal-rank fusion and temporal merge/selection utilities |
-| API | Local upload, SQLite-backed library metadata, media playback, deletion, and health routes; search responds `503` until a retrieval engine is configured |
-| Frontend | React/Vite library, local video preview, upload, responsive search shell, and honest unconfigured-search state |
+| API | Local upload, YouTube URL import, background visual/speech indexing, SQLite-backed library and evidence metadata, media playback, deletion, health, and search routes |
+| Frontend | React/Vite library, local video preview, file and YouTube URL imports, indexing status, and visual/speech search |
 | Workers | Queue and task backends are not implemented |
 | Vector and SQL persistence | Interfaces/dependencies exist; durable adapters are not connected |
 | Tests | Backend API integration tests and frontend API-client tests; remaining planned suites still include placeholders |
@@ -68,8 +67,9 @@ environment variable does not mean its service is connected. See
 ### Install dependencies
 
 From the repository root, create and activate a virtual environment. These
-commands install the backend development tools, API upload support, and
-evaluation config support.
+commands install the backend development tools, API upload support,
+evaluation config support, speech/YouTube search, and local visual-search
+dependencies.
 
 **Windows PowerShell**
 
@@ -77,7 +77,7 @@ evaluation config support.
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev,api,eval]"
+python -m pip install -e ".[dev,api,eval,search,visual]"
 ```
 
 **macOS or Linux**
@@ -86,7 +86,7 @@ python -m pip install -e ".[dev,api,eval]"
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev,api,eval]"
+python -m pip install -e ".[dev,api,eval,search,visual]"
 ```
 
 Install frontend dependencies in a second terminal:
@@ -96,15 +96,18 @@ cd frontend
 npm ci
 ```
 
-Optional dependency groups add media processing and model libraries:
+Optional dependency groups add other media processing and model libraries:
 
 ```bash
 python -m pip install -e ".[media,models]"
 ```
 
-The `media` extra does not install the external `ffprobe` executable. Model
-weights, benchmark datasets, Qdrant, and Redis are not downloaded or
-provisioned by these commands.
+The `search` extra installs Faster-Whisper and yt-dlp; `visual` installs
+OpenCV and Sentence Transformers. The first indexing run downloads the
+Faster-Whisper `base` model and CLIP `clip-ViT-B-32` into `data/models/`.
+Visual embeddings and transcripts remain local. URL imports accept only public HTTPS YouTube URLs
+and enforce the configured size and duration limits. Import videos only when
+you have the rights and permission to use them.
 
 ### Configure and run the application
 
@@ -134,10 +137,10 @@ npm run dev
 ```
 
 Open `http://127.0.0.1:5173`. Vite proxies API requests to
-`http://127.0.0.1:8000`. The local API supports upload, library listing,
-playback, deletion, and health checks. Search returns HTTP `503` until a
-retrieval index is connected. The API has no authentication; keep it on a
-trusted local machine. See the [API guide](docs/api.md) for endpoint details.
+`http://127.0.0.1:8000`. Uploaded or imported videos are transcribed and
+sampled for visual search in the background; their library status changes to
+**Indexed** when processing completes. The API has no authentication; keep it on a trusted local
+machine. See the [API guide](docs/api.md) for endpoint details.
 
 Check that the backend is running:
 

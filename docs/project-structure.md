@@ -177,5 +177,5 @@ implemented production services.
 `configs/`, `docker/`, and `.github/workflows/` were in the original proposal
 but are not present. The frontend is present, but model profiles, container
 deployment, and CI workflows have not been added. The search API explicitly
-reports that retrieval is not connected; local uploads are stored and playable,
-but are not yet indexed.
+supports timestamped spoken-word and local CLIP visual search. OCR and
+audio-event evidence are not indexed yet.
