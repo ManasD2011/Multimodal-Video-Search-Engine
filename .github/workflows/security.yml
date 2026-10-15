@@ -50,7 +50,10 @@ jobs:
       - name: Install Trivy
         uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
         with:
-          version: v0.68.2
+          # Pin to a release whose GitHub release assets still exist. Older
+          # releases (<= v0.69.2) had their assets removed upstream, which makes
+          # the installer fail with exit code 1 right after version detection.
+          version: v0.76.0
           cache: true
 
       - name: Scan repository with Trivy
